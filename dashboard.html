@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BMW GIIAS — Supervisor Dashboard</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --black:#1a1a1a;--white:#fff;--bg:#f5f4f0;--surface:#fff;
+  --border:#e5e3dc;--muted:#888780;--radius:10px;--radius-sm:6px;
+  --green-bg:#EAF3DE;--green-tx:#27500A;--green-bd:#C0DD97;
+  --amber-bg:#FAEEDA;--amber-tx:#633806;--amber-bd:#FAC775;
+  --red-bg:#FCEBEB;--red-tx:#791F1F;--red-bd:#F7C1C1;
+  --blue-bg:#E6F1FB;--blue-tx:#0C447C;--blue-bd:#B5D4F4;
+  --gray-bg:#F1EFE8;--gray-tx:#444441;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--black);min-height:100vh;}
+
+/* ── PIN LOCK ── */
+.lock-overlay{
+  position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5);
+  backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;
+}
+.lock-overlay.hidden{display:none}
+.lock-card{
+  background:var(--surface);border-radius:16px;padding:32px 28px;
+  width:320px;max-width:90vw;text-align:center;
+}
+.lock-icon{font-size:36px;margin-bottom:12px}
+.lock-title{font-size:17px;font-weight:700;margin-bottom:6px}
+.lock-sub{font-size:13px;color:var(--muted);margin-bottom:22px}
+.pin-dots{display:flex;gap:10px;justify-content:center;margin-bottom:20px}
+.pin-dot{
+  width:14px;height:14px;border-radius:50%;
+  border:2px solid var(--border);background:transparent;transition:all .15s;
+}
+.pin-dot.filled{background:var(--black);border-color:var(--black)}
+.pin-dot.error {background:var(--red-tx);border-color:var(--red-tx)}
+.numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.numkey{
+  padding:15px;font-size:18px;font-weight:600;border-radius:var(--radius);
+  border:1px solid var(--border);background:var(--bg);cursor:pointer;
+  color:var(--black);transition:all .12s;user-select:none;
+}
+.numkey:hover{background:var(--border)}
+.numkey:active{transform:scale(.95)}
+.numkey.del{font-size:14px;color:var(--muted)}
+.pin-err{font-size:13px;color:var(--red-tx);min-height:20px;margin-bottom:8px}
+
+/* ── Topnav ── */
+.topnav{
+  background:var(--black);color:var(--white);
+  height:52px;padding:0 20px;
+  display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:100;
+}
+.nav-brand{font-size:14px;font-weight:700;letter-spacing:.06em}
+.nav-brand span{opacity:.4;margin:0 8px}
+.nav-tabs{display:flex;gap:2px}
+.nav-tab{
+  padding:6px 13px;font-size:13px;border-radius:6px;cursor:pointer;
+  color:rgba(255,255,255,.5);background:transparent;border:none;transition:all .15s;
+}
+.nav-tab:hover{color:rgba(255,255,255,.85);background:rgba(255,255,255,.08)}
+.nav-tab.active{color:var(--white);background:rgba(255,255,255,.15)}
+.live-pill{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,.55)}
+.live-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;animation:pulse 1.8s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ── Pages ── */
+.page{display:none}.page.active{display:block}
+.wrap{padding:24px;max-width:980px;margin:0 auto}
+
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.page-title{font-size:18px;font-weight:700}
+.page-sub{font-size:13px;color:var(--muted);margin-top:2px}
+.btn-refresh{
+  display:flex;align-items:center;gap:6px;font-size:13px;
+  padding:8px 16px;border-radius:var(--radius-sm);
+  border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--black);
+  transition:all .15s;
+}
+.btn-refresh:hover{border-color:var(--black)}
+.btn-refresh svg{width:15px;height:15px}
+.btn-refresh.spinning svg{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Metric */
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+@media(max-width:680px){.metric-grid{grid-template-columns:repeat(2,1fr)}}
+.m-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.m-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px}
+.m-val{font-size:32px;font-weight:800;line-height:1}
+.m-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.mv-green{color:#27500A}.mv-amber{color:#633806}.mv-red{color:#791F1F}
+
+.card-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:680px){.card-row{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.card-title{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:14px}
+
+.prog-item{margin-bottom:14px}.prog-item:last-child{margin-bottom:0}
+.prog-label{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}
+.prog-label .cnt{color:var(--muted)}
+.prog-track{height:7px;background:var(--bg);border-radius:999px;overflow:hidden}
+.prog-fill{height:100%;border-radius:999px;transition:width .7s ease}
+.pf-m{background:var(--black)}.pf-a{background:#888}
+
+.donut-wrap{display:flex;align-items:center;gap:20px}
+.leg-row{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px}
+.leg-row:last-child{margin-bottom:0}
+.ldot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+/* Tabs */
+.tab-filter{display:flex;gap:4px;margin-bottom:14px}
+.tab-btn{
+  padding:5px 14px;font-size:12px;border-radius:999px;
+  border:1px solid var(--border);background:var(--surface);cursor:pointer;
+  color:var(--muted);transition:all .12s;
+}
+.tab-btn:hover{border-color:var(--black);color:var(--black)}
+.tab-btn.active{background:var(--black);border-color:var(--black);color:var(--white)}
+
+/* Table */
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table th{
+  font-size:11px;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--muted);text-align:left;padding:0 0 8px;
+  border-bottom:1px solid var(--border);font-weight:500;
+}
+.data-table td{padding:9px 0;border-bottom:1px solid var(--border);vertical-align:middle}
+.data-table tr:last-child td{border-bottom:none}
+.tbl-scroll{overflow-x:auto}
+.name-cell{font-weight:600}.id-cell{color:var(--muted);font-family:monospace;font-size:12px}
+
+/* Badges */
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600}
+.bg-green{background:var(--green-bg);color:var(--green-tx)}
+.bg-amber{background:var(--amber-bg);color:var(--amber-tx)}
+.bg-red  {background:var(--red-bg);color:var(--red-tx)}
+.bg-blue {background:var(--blue-bg);color:var(--blue-tx)}
+.bg-gray {background:var(--gray-bg);color:var(--gray-tx)}
+
+/* Absent rows */
+.avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.av-blue{background:var(--blue-bg);color:var(--blue-tx)}
+.av-red {background:var(--red-bg);color:var(--red-tx)}
+.ab-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--border)}
+.ab-row:last-child{border-bottom:none}
+.ab-info{flex:1;min-width:0}
+.ab-name{font-weight:600;font-size:13px}
+.ab-sub {font-size:11px;color:var(--muted);margin-top:1px}
+
+.empty-state{text-align:center;padding:32px;color:var(--muted);font-size:13px}
+.spinner-wrap{text-align:center;padding:40px}
+.spinner{width:26px;height:26px;border:2px solid var(--border);border-top-color:var(--black);
+  border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 10px}
+</style>
+</head>
+<body>
+
+<!-- ════ PIN LOCK ════ -->
+<div class="lock-overlay" id="lock-overlay">
+  <div class="lock-card">
+    <div class="lock-icon">🔒</div>
+    <div class="lock-title">Supervisor Dashboard</div>
+    <div class="lock-sub">Masukkan PIN 4 digit untuk melanjutkan</div>
+    <div class="pin-dots">
+      <div class="pin-dot" id="d0"></div>
+      <div class="pin-dot" id="d1"></div>
+      <div class="pin-dot" id="d2"></div>
+      <div class="pin-dot" id="d3"></div>
+    </div>
+    <div class="numpad">
+      <button class="numkey" onclick="pk('1')">1</button>
+      <button class="numkey" onclick="pk('2')">2</button>
+      <button class="numkey" onclick="pk('3')">3</button>
+      <button class="numkey" onclick="pk('4')">4</button>
+      <button class="numkey" onclick="pk('5')">5</button>
+      <button class="numkey" onclick="pk('6')">6</button>
+      <button class="numkey" onclick="pk('7')">7</button>
+      <button class="numkey" onclick="pk('8')">8</button>
+      <button class="numkey" onclick="pk('9')">9</button>
+      <button class="numkey del" onclick="pk('del')">⌫</button>
+      <button class="numkey" onclick="pk('0')">0</button>
+      <button class="numkey del" onclick="pk('clr')">C</button>
+    </div>
+    <div class="pin-err" id="pin-err"></div>
+  </div>
+</div>
+
+<!-- ════ TOPNAV ════ -->
+<nav class="topnav">
+  <div class="nav-brand">BMW<span>|</span>GIIAS — Supervisor</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchPage('dashboard',this)">Dashboard</button>
+    <button class="nav-tab" onclick="switchPage('absent',this)">Belum Hadir</button>
+    <button class="nav-tab" onclick="switchPage('log',this)">Log</button>
+  </div>
+  <div class="live-pill"><div class="live-dot"></div><span id="live-count">0/0 hadir</span></div>
+</nav>
+
+<!-- ════ DASHBOARD ════ -->
+<div id="page-dashboard" class="page active">
+  <div class="wrap">
+    <div class="page-header">
+      <div><div class="page-title">Supervisor Dashboard</div><div class="page-sub" id="dash-updated">—</div></div>
+      <button class="btn-refresh" id="btn-rd" onclick="loadDashboard()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>Refresh
+      </button>
+    </div>
+    <div class="metric-grid">
+      <div class="m-card"><div class="m-label">Total Sales</div><div class="m-val" id="m-total">—</div><div class="m-sub">terdaftar</div></div>
+      <div class="m-card"><div class="m-label">Hadir</div><div class="m-val mv-green" id="m-hadir">—</div><div class="m-sub" id="m-pct">—</div></div>
+      <div class="m-card"><div class="m-label">Terlambat</div><div class="m-val mv-amber" id="m-late">—</div><div class="m-sub">melewati batas shift</div></div>
+      <div class="m-card"><div class="m-label">Belum Hadir</div><div class="m-val mv-red" id="m-absent">—</div><div class="m-sub">perlu dicari</div></div>
+    </div>
+    <div class="card-row">
+      <div class="card">
+        <div class="card-title">Kehadiran per shift</div>
+        <div class="prog-item">
+          <div class="prog-label"><span>Morning <small style="color:var(--muted)">(batas 07:45)</small></span><span class="cnt" id="sm-cnt">0/0</span></div>
+          <div class="prog-track"><div class="prog-fill pf-m" id="sm-bar" style="width:0%"></div></div>
+        </div>
+        <div class="prog-item">
+          <div class="prog-label"><span>Afternoon <small style="color:var(--muted)">(batas 13:00)</small></span><span class="cnt" id="sa-cnt">0/0</span></div>
+          <div class="prog-track"><div class="prog-fill pf-a" id="sa-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Status kehadiran</div>
+        <div class="donut-wrap">
+          <svg width="90" height="90" viewBox="0 0 90 90" style="flex-shrink:0">
+            <circle cx="45" cy="45" r="34" fill="none" stroke="#F1EFE8" stroke-width="14"/>
+            <circle id="donut-late" cx="45" cy="45" r="34" fill="none" stroke="#EF9F27"
+              stroke-width="14" stroke-dasharray="0 213.6" stroke-linecap="butt"
+              transform="rotate(-90 45 45)" style="transition:stroke-dasharray .7s"/>
+            <circle id="donut-hadir" cx="45" cy="45" r="34" fill="none" stroke="#1a1a1a"
+              stroke-width="14" stroke-dasharray="0 213.6" stroke-linecap="butt"
+              transform="rotate(-90 45 45)" style="transition:stroke-dasharray .7s"/>
+            <text x="45" y="42" text-anchor="middle" font-size="16" font-weight="800" fill="#1a1a1a" id="donut-pct">0%</text>
+            <text x="45" y="56" text-anchor="middle" font-size="9" fill="#888">hadir</text>
+          </svg>
+          <div>
+            <div class="leg-row"><div class="ldot" style="background:#1a1a1a"></div>Tepat Waktu&nbsp;<strong id="leg-ok">0</strong></div>
+            <div class="leg-row"><div class="ldot" style="background:#EF9F27"></div>Terlambat&nbsp;<strong id="leg-late">0</strong></div>
+            <div class="leg-row"><div class="ldot" style="background:#F1EFE8;border:1px solid #ccc"></div>Belum Hadir&nbsp;<strong id="leg-abs">0</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ BELUM HADIR ════ -->
+<div id="page-absent" class="page">
+  <div class="wrap">
+    <div class="page-header">
+      <div><div class="page-title">Belum Check-In</div><div class="page-sub" id="abs-sub">—</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="tab-filter">
+          <button class="tab-btn active" onclick="setAbsFilter('all',this)">Semua</button>
+          <button class="tab-btn" onclick="setAbsFilter('Morning',this)">Morning</button>
+          <button class="tab-btn" onclick="setAbsFilter('Afternoon',this)">Afternoon</button>
+        </div>
+        <button class="btn-refresh" onclick="loadAbsent()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>Refresh
+        </button>
+      </div>
+    </div>
+    <div class="card"><div id="abs-list"><div class="spinner-wrap"><div class="spinner"></div><p>Memuat…</p></div></div></div>
+  </div>
+</div>
+
+<!-- ════ LOG ════ -->
+<div id="page-log" class="page">
+  <div class="wrap">
+    <div class="page-header">
+      <div><div class="page-title">Log Absensi</div><div class="page-sub" id="log-sub">—</div></div>
+      <button class="btn-refresh" onclick="loadLog()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>Refresh
+      </button>
+    </div>
+    <div class="card tbl-scroll">
+      <table class="data-table">
+        <thead><tr>
+          <th>Waktu</th><th>Nama</th><th>ID</th><th>Shift</th><th>Status</th><th>Petugas</th>
+        </tr></thead>
+        <tbody id="log-tbody">
+          <tr><td colspan="6"><div class="spinner-wrap"><div class="spinner"></div><p>Memuat…</p></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzFz_KMAjrcPH8Fr6DQMQYLBngvzPUFTMgpNl9NvrEakUnblLxPQ2hzmWLBDKMU7e4/exec";
+
+// ── PIN ──
+let pinBuf = "";
+function pk(k) {
+  const err = document.getElementById("pin-err");
+  err.textContent = "";
+  for(let i=0;i<4;i++) document.getElementById("d"+i).classList.remove("error");
+  if(k==="del"){pinBuf=pinBuf.slice(0,-1);updDots();return}
+  if(k==="clr"){pinBuf="";updDots();return}
+  if(pinBuf.length>=4)return;
+  pinBuf+=k; updDots();
+  if(pinBuf.length===4) submitPin();
+}
+function updDots(){for(let i=0;i<4;i++) document.getElementById("d"+i).classList.toggle("filled",i<pinBuf.length)}
+async function submitPin(){
+  const err=document.getElementById("pin-err");
+  try{
+    const res=await api("verifyPin",{pin:pinBuf});
+    if(res.success){
+      document.getElementById("lock-overlay").classList.add("hidden");
+      loadDashboard(); fetchLive();
+    } else {
+      for(let i=0;i<4;i++) document.getElementById("d"+i).classList.add("error");
+      err.textContent=res.message||"PIN salah.";
+      setTimeout(()=>{pinBuf="";updDots();for(let i=0;i<4;i++) document.getElementById("d"+i).classList.remove("error");err.textContent=""},900);
+    }
+  }catch(e){err.textContent="Gagal terhubung.";pinBuf="";updDots()}
+}
+document.addEventListener("keydown",e=>{
+  if(document.getElementById("lock-overlay").classList.contains("hidden"))return;
+  if(e.key>="0"&&e.key<="9")pk(e.key);
+  if(e.key==="Backspace")pk("del");
+});
+
+// ── Nav ──
+function switchPage(id,el){
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".nav-tab").forEach(t=>t.classList.remove("active"));
+  document.getElementById("page-"+id).classList.add("active");
+  el.classList.add("active");
+  if(id==="dashboard")loadDashboard();
+  if(id==="absent")loadAbsent();
+  if(id==="log")loadLog();
+}
+
+// ── API ──
+async function api(action,extra={}){
+  const res=await fetch(GAS_URL,{method:"POST",body:JSON.stringify({action,...extra})});
+  if(!res.ok)throw new Error("HTTP "+res.status);
+  return res.json();
+}
+
+// ── Dashboard ──
+async function loadDashboard(){
+  const btn=document.getElementById("btn-rd");
+  btn.classList.add("spinning");
+  try{
+    const res=await api("getDashboard");
+    if(!res.success)return;
+    const d=res.data;
+    document.getElementById("m-total").textContent=d.total;
+    document.getElementById("m-hadir").textContent=d.hadir;
+    document.getElementById("m-pct").textContent=d.persentase+"% kehadiran";
+    document.getElementById("m-late").textContent=d.late;
+    document.getElementById("m-absent").textContent=d.absent;
+    const mP=d.totalMorning>0?Math.round(d.morning/d.totalMorning*100):0;
+    const aP=d.totalAfternoon>0?Math.round(d.afternoon/d.totalAfternoon*100):0;
+    document.getElementById("sm-cnt").textContent=d.morning+"/"+d.totalMorning;
+    document.getElementById("sa-cnt").textContent=d.afternoon+"/"+d.totalAfternoon;
+    document.getElementById("sm-bar").style.width=mP+"%";
+    document.getElementById("sa-bar").style.width=aP+"%";
+    renderDonut(d);
+    const tepat=Math.max(0,d.hadir-d.late);
+    document.getElementById("leg-ok").textContent=tepat;
+    document.getElementById("leg-late").textContent=d.late;
+    document.getElementById("leg-abs").textContent=d.absent;
+    const now=new Date();
+    document.getElementById("dash-updated").textContent="Update: "+pad(now.getHours())+":"+pad(now.getMinutes())+" WIB";
+    updateLive(d.hadir,d.total);
+  }catch(e){document.getElementById("dash-updated").textContent="Gagal memuat."}
+  btn.classList.remove("spinning");
+}
+
+function renderDonut(d){
+  const c=213.6,t=d.total||1;
+  const tepat=Math.max(0,d.hadir-d.late);
+  const aT=tepat/t*c, aL=d.late/t*c, degT=tepat/t*360;
+  document.getElementById("donut-hadir").setAttribute("stroke-dasharray",aT.toFixed(1)+" "+(c-aT).toFixed(1));
+  const lEl=document.getElementById("donut-late");
+  lEl.setAttribute("stroke-dasharray",aL.toFixed(1)+" "+(c-aL).toFixed(1));
+  lEl.setAttribute("transform","rotate("+(-90+degT)+" 45 45)");
+  document.getElementById("donut-pct").textContent=d.persentase+"%";
+}
+
+// ── Absent ──
+let absData=[], absFilter="all";
+async function loadAbsent(){
+  document.getElementById("abs-list").innerHTML='<div class="spinner-wrap"><div class="spinner"></div><p>Memuat…</p></div>';
+  try{
+    const res=await api("getAbsent");
+    absData=res.data||[]; renderAbsent();
+  }catch(e){document.getElementById("abs-list").innerHTML='<div class="empty-state">Gagal memuat.</div>'}
+}
+function setAbsFilter(v,el){
+  absFilter=v;
+  document.querySelectorAll(".tab-btn").forEach(t=>t.classList.remove("active"));
+  el.classList.add("active");
+  renderAbsent();
+}
+function renderAbsent(){
+  const f=absFilter==="all"?absData:absData.filter(r=>r.shift===absFilter);
+  document.getElementById("abs-sub").textContent=f.length+" sales belum check-in"+(absFilter!=="all"?" · "+absFilter:"");
+  if(!f.length){document.getElementById("abs-list").innerHTML='<div class="empty-state">Semua sudah check-in ✓</div>';return}
+  document.getElementById("abs-list").innerHTML=f.map(r=>{
+    const ini=r.nama.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+    const ac=r.shift==="Morning"?"av-blue":"av-red";
+    const sc=r.shift==="Morning"?"bg-blue":"bg-amber";
+    return`<div class="ab-row"><div class="avatar ${ac}">${ini}</div>
+      <div class="ab-info"><div class="ab-name">${r.nama}</div><div class="ab-sub">${r.employeeId} · ${r.dealer}</div></div>
+      <span class="badge ${sc}">${r.shift}</span></div>`;
+  }).join("");
+}
+
+// ── Log ──
+async function loadLog(){
+  document.getElementById("log-tbody").innerHTML='<tr><td colspan="6"><div class="spinner-wrap"><div class="spinner"></div><p>Memuat…</p></div></td></tr>';
+  try{
+    const res=await api("getLog");
+    const rows=res.data||[];
+    document.getElementById("log-sub").textContent=rows.length+" entries";
+    if(!rows.length){document.getElementById("log-tbody").innerHTML='<tr><td colspan="6"><div class="empty-state">Belum ada data.</div></td></tr>';return}
+    document.getElementById("log-tbody").innerHTML=rows.map(r=>{
+      const sc=r.status==="Terlambat"?"bg-amber":"bg-green";
+      const sh=r.shift==="Morning"?"bg-blue":"bg-gray";
+      return`<tr><td>${r.timestamp}</td><td class="name-cell">${r.nama}</td>
+        <td class="id-cell">${r.employeeId}</td>
+        <td><span class="badge ${sh}">${r.shift}</span></td>
+        <td><span class="badge ${sc}">${r.status}</span></td>
+        <td style="color:var(--muted);font-size:12px">${r.petugas||"-"}</td></tr>`;
+    }).join("");
+  }catch(e){document.getElementById("log-tbody").innerHTML='<tr><td colspan="6"><div class="empty-state">Gagal memuat.</div></td></tr>'}
+}
+
+// ── Live count ──
+function updateLive(h,t){document.getElementById("live-count").textContent=h+"/"+t+" hadir"}
+async function fetchLive(){
+  try{const r=await api("getDashboard");if(r.success)updateLive(r.data.hadir,r.data.total)}catch(e){}
+}
+function pad(n){return String(n).padStart(2,"0")}
+
+// Auto refresh dashboard tiap 60 detik
+setInterval(()=>{
+  if(document.getElementById("page-dashboard").classList.contains("active"))loadDashboard();
+},60000);
+</script>
+</body>
+</html>

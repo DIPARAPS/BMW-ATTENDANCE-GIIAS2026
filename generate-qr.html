@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BMW GIIAS — Generate QR Sales</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --black:#1a1a1a;--white:#fff;--bg:#f5f4f0;--surface:#fff;
+  --border:#e5e3dc;--muted:#888780;--radius:10px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--black);}
+
+/* ── Control bar ── */
+.control-bar{
+  background:var(--black);color:var(--white);
+  padding:0 24px;height:56px;
+  display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:100;
+}
+.ctrl-brand{font-size:14px;font-weight:700;letter-spacing:.06em}
+.ctrl-brand span{opacity:.4;margin:0 8px}
+.ctrl-actions{display:flex;gap:8px;align-items:center}
+.btn{
+  padding:7px 16px;font-size:13px;font-weight:600;border-radius:6px;
+  cursor:pointer;border:none;transition:all .15s;
+}
+.btn-white{background:var(--white);color:var(--black)}
+.btn-white:hover{opacity:.85}
+.btn-outline{background:transparent;color:rgba(255,255,255,.7);
+  border:1px solid rgba(255,255,255,.2)}
+.btn-outline:hover{color:var(--white);border-color:rgba(255,255,255,.5)}
+
+/* ── Setup panel ── */
+.setup-panel{
+  max-width:640px;margin:32px auto;padding:0 16px;
+}
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:24px;margin-bottom:16px;
+}
+.card-title{font-size:13px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--muted);margin-bottom:16px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px}
+.field input,.field select,.field textarea{
+  width:100%;padding:10px 12px;font-size:14px;
+  border:1.5px solid var(--border);border-radius:var(--radius);
+  background:var(--bg);color:var(--black);outline:none;
+}
+.field input:focus,.field textarea:focus{border-color:var(--black)}
+.field textarea{height:200px;font-family:monospace;font-size:12px;resize:vertical}
+.field-hint{font-size:11px;color:var(--muted);margin-top:5px}
+.btn-generate{
+  width:100%;padding:14px;font-size:15px;font-weight:700;
+  background:var(--black);color:var(--white);border:none;
+  border-radius:var(--radius);cursor:pointer;margin-top:4px;
+}
+.btn-generate:hover{opacity:.85}
+.progress-wrap{margin-top:12px;display:none}
+.progress-bar{height:6px;background:var(--border);border-radius:999px;overflow:hidden}
+.progress-fill{height:100%;background:var(--black);border-radius:999px;width:0%;transition:width .2s}
+.progress-text{font-size:12px;color:var(--muted);margin-top:6px}
+
+/* ── QR Grid (print area) ── */
+.qr-section{display:none;padding:16px}
+.qr-section-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:16px;max-width:900px;margin-left:auto;margin-right:auto;
+}
+.qr-section-title{font-size:16px;font-weight:700}
+.qr-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+  gap:12px;max-width:900px;margin:0 auto;
+}
+
+/* ── QR Card ── */
+.qr-card{
+  background:var(--white);border:1px solid var(--border);
+  border-radius:10px;padding:14px 12px;text-align:center;
+  break-inside:avoid;
+}
+.qr-card .event-name{
+  font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:8px;
+}
+.qr-canvas-wrap{
+  display:flex;justify-content:center;margin-bottom:8px;
+}
+.qr-canvas-wrap canvas,.qr-canvas-wrap img{
+  width:120px!important;height:120px!important;
+}
+.qr-card .emp-id{
+  font-size:14px;font-weight:800;font-family:monospace;
+  letter-spacing:.1em;color:var(--black);margin-bottom:3px;
+}
+.qr-card .emp-name{
+  font-size:12px;font-weight:600;color:var(--black);
+  margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.qr-card .emp-shift{
+  display:inline-block;font-size:10px;font-weight:700;padding:2px 10px;
+  border-radius:999px;margin-top:4px;
+}
+.shift-morning  {background:#E6F1FB;color:#0C447C}
+.shift-afternoon{background:#FAEEDA;color:#633806}
+
+/* ── Print styles ── */
+@media print{
+  .control-bar,.setup-panel,.qr-section-header{display:none!important}
+  .qr-section{display:block!important;padding:0}
+  .qr-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:6px;max-width:100%;
+  }
+  .qr-card{
+    border:0.5px solid #ccc;border-radius:6px;
+    padding:10px 8px;page-break-inside:avoid;
+  }
+  body{background:white}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Control Bar ── -->
+<div class="control-bar">
+  <div class="ctrl-brand">BMW<span>|</span>GIIAS — Generate QR</div>
+  <div class="ctrl-actions">
+    <button class="btn btn-outline" onclick="loadFromGAS()">📥 Load dari Sheets</button>
+    <button class="btn btn-white" onclick="window.print()">🖨 Print QR Cards</button>
+  </div>
+</div>
+
+<!-- ── Setup Panel ── -->
+<div class="setup-panel" id="setup-panel">
+  <div class="card">
+    <div class="card-title">Konfigurasi</div>
+    <div class="field">
+      <label>URL Halaman Scanner (GitHub Pages)</label>
+      <input id="scanner-url-input" type="text" placeholder="https://username.github.io/nama-repo/scanner.html" />
+      <div class="field-hint">⚠️ WAJIB diisi — ini yang akan di-encode ke dalam setiap QR card. Contoh: https://DIPARAPS.github.io/BC-BMW-ATTENDANCE-GIIAS2026/scanner.html</div>
+    </div>
+    <div class="field">
+      <label>Web App URL (Apps Script) — untuk load data otomatis</label>
+      <input id="gas-url-input" type="text" placeholder="https://script.google.com/macros/s/.../exec" />
+      <div class="field-hint">Opsional — digunakan tombol "Load dari Sheets"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Data Sales (CSV)</div>
+    <div class="field">
+      <label>Format: Employee_ID,Nama,Shift</label>
+      <textarea id="csv-input" placeholder="BMW001,Andi Pratama,Morning
+BMW002,Budi Santoso,Afternoon
+BMW003,Cindy Wijaya,Morning
+..."></textarea>
+      <div class="field-hint">Satu baris per sales. Atau klik "Load dari Sheets" untuk import otomatis.</div>
+    </div>
+    <button class="btn-generate" onclick="generateQR()">⚡ Generate QR Cards</button>
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
+      <div class="progress-text" id="prog-text">Memproses...</div>
+    </div>
+  </div>
+
+  <div class="card" style="background:#F0F7FF;border-color:#B5D4F4">
+    <div class="card-title" style="color:#0C447C">Cara pakai</div>
+    <ol style="font-size:13px;line-height:2;padding-left:18px;color:#1a4a7a">
+      <li>Isi URL Apps Script, lalu klik <strong>Load dari Sheets</strong></li>
+      <li>Atau input manual di kolom CSV di atas</li>
+      <li>Klik <strong>Generate QR Cards</strong></li>
+      <li>Klik <strong>Print QR Cards</strong> untuk cetak (4 kartu per baris)</li>
+      <li>Gunting dan tempel ke ID card masing-masing sales</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ── QR Grid ── -->
+<div class="qr-section" id="qr-section">
+  <div class="qr-section-header">
+    <div class="qr-section-title">
+      QR Cards — <span id="total-count">0</span> sales
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline" style="background:#f5f4f0;color:#1a1a1a;border-color:#e5e3dc"
+        onclick="document.getElementById('qr-section').style.display='none';document.getElementById('setup-panel').style.display='block'">
+        ← Kembali
+      </button>
+      <button class="btn btn-white" style="background:#1a1a1a;color:#fff"
+        onclick="window.print()">🖨 Print</button>
+    </div>
+  </div>
+  <div class="qr-grid" id="qr-grid"></div>
+</div>
+
+<script>
+const GAS_URL_DEFAULT = "GANTI_DENGAN_WEB_APP_URL_DARI_GOOGLE_APPS_SCRIPT";
+document.getElementById("gas-url-input").value = GAS_URL_DEFAULT;
+
+// ── Load data dari Google Sheets via Apps Script ──
+async function loadFromGAS() {
+  const url = document.getElementById("gas-url-input").value.trim();
+  if (!url || url.includes("GANTI")) {
+    alert("Isi URL Apps Script dulu."); return;
+  }
+  try {
+    const res  = await fetch(url, {
+      method:"POST", body:JSON.stringify({action:"getMasterList"})
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.message);
+
+    const csv = data.data.map(r =>
+      [r.employeeId, r.nama, r.shift].join(",")
+    ).join("\n");
+
+    document.getElementById("csv-input").value = csv;
+    alert("Berhasil load " + data.data.length + " data dari Google Sheets!\nKlik Generate QR Cards.");
+  } catch(e) {
+    alert("Gagal load data: " + e.message);
+  }
+}
+
+// ── Generate QR Cards ──
+async function generateQR() {
+  const raw        = document.getElementById("csv-input").value.trim();
+  const scannerUrl = document.getElementById("scanner-url-input").value.trim();
+
+  if (!scannerUrl || scannerUrl.includes("username")) {
+    alert("Isi URL Scanner (GitHub Pages) dulu!\nContoh: https://DIPARAPS.github.io/BC-BMW-ATTENDANCE-GIIAS2026/scanner.html");
+    return;
+  }
+  if (!raw) { alert("Isi data sales dulu."); return; }
+
+  // Pastikan tidak ada trailing slash di base URL
+  const baseUrl = scannerUrl.replace(/\/$/, "");
+
+  const lines = raw.split("\n").filter(l => l.trim());
+  const sales = lines.map(l => {
+    const parts = l.split(",").map(p => p.trim());
+    return { id: parts[0], nama: parts[1] || parts[0], shift: parts[2] || "Morning" };
+  }).filter(s => s.id);
+
+  if (sales.length === 0) { alert("Format data tidak valid."); return; }
+
+  // Show progress
+  const progWrap = document.getElementById("progress-wrap");
+  const progFill = document.getElementById("prog-fill");
+  const progText = document.getElementById("prog-text");
+  progWrap.style.display = "block";
+
+  // Clear grid
+  const grid = document.getElementById("qr-grid");
+  grid.innerHTML = "";
+  document.getElementById("total-count").textContent = sales.length;
+
+  for (let i = 0; i < sales.length; i++) {
+    const s = sales[i];
+
+    // Update progress
+    const pct = Math.round((i + 1) / sales.length * 100);
+    progFill.style.width = pct + "%";
+    progText.textContent = `Generating ${i+1} / ${sales.length} — ${s.nama}`;
+
+    // Buat card
+    const card = document.createElement("div");
+    card.className = "qr-card";
+    const shiftCls = s.shift === "Morning" ? "shift-morning" : "shift-afternoon";
+    card.innerHTML = `
+      <div class="event-name">BMW GIIAS 2025</div>
+      <div class="qr-canvas-wrap" id="qr-wrap-${i}"></div>
+      <div class="emp-id">${s.id}</div>
+      <div class="emp-name">${s.nama}</div>
+      <div class="emp-shift ${shiftCls}">${s.shift}</div>
+    `;
+    grid.appendChild(card);
+
+    // ✅ QR berisi URL lengkap ke scanner.html dengan parameter ?id=BMW001
+    // Saat petugas scan, otomatis terbuka scanner.html dan langsung proses check-in
+    const qrContent = baseUrl + "?id=" + encodeURIComponent(s.id);
+
+    new QRCode(document.getElementById("qr-wrap-" + i), {
+      text        : qrContent,
+      width       : 120,
+      height      : 120,
+      colorDark   : "#1a1a1a",
+      colorLight  : "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M
+    });
+
+    // Yield ke browser tiap 10 item agar tidak freeze
+    if (i % 10 === 9) await sleep(10);
+  }
+
+  progWrap.style.display = "none";
+  document.getElementById("setup-panel").style.display = "none";
+  document.getElementById("qr-section").style.display  = "block";
+}
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>
