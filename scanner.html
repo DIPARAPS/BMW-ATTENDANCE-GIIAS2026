@@ -247,14 +247,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 </div>
 
 <script>
-// ══════════════════════════════════════
-//  CONFIG
-// ══════════════════════════════════════
 const GAS_URL = "GANTI_DENGAN_WEB_APP_URL_DARI_GOOGLE_APPS_SCRIPT";
 
-// ══════════════════════════════════════
-//  STATE
-// ══════════════════════════════════════
+// ── STATE ──
 let petugas       = "";
 let scanCount     = 0;
 let isPaused      = false;
@@ -262,13 +257,9 @@ let currentStream = null;
 let useFrontCam   = false;
 let lastScanned   = "";
 let lastScannedAt = 0;
-let rafId         = null;
-let canvas        = document.createElement("canvas");
-let ctx           = canvas.getContext("2d");
+let scanning      = false;
 
-// ══════════════════════════════════════
-//  PETUGAS MODAL
-// ══════════════════════════════════════
+// ── PETUGAS MODAL ──
 function selectPetugas(name, el) {
   document.querySelectorAll(".petugas-opt").forEach(b => b.classList.remove("selected"));
   el.classList.add("selected");
@@ -285,56 +276,10 @@ function confirmPetugas() {
 }
 
 function openPetugasModal() {
-  stopCamera();
+  scanning = false;
+  if (currentStream) currentStream.getTracks().forEach(t => t.stop());
   document.getElementById("input-petugas").value = petugas;
   document.getElementById("modal-petugas").classList.add("open");
-}
-
-// ══════════════════════════════════════
-//  CAMERA
-// ══════════════════════════════════════
-async function startCamera() {
-  try {
-    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: useFrontCam ? "user" : { ideal: "environment" },
-        width:  { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    });
-
-    currentStream = stream;
-    const video = document.getElementById("video");
-    video.srcObject = stream;
-    video.setAttribute("playsinline", true);
-    video.muted = true;
-
-    // Mulai tick loop segera setelah play — tidak tunggu loadeddata
-    // karena event loadeddata kadang tidak fired di mobile browser
-    await video.play();
-
-    isPaused = false;
-    setIndicator("scanning", "● Siap scan");
-
-    // Langsung mulai loop tanpa tunggu event
-    rafId = requestAnimationFrame(tick);
-
-  } catch (err) {
-    document.getElementById("camera-wrap").innerHTML =
-      `<div class="no-camera">
-        <div class="icon">📷</div>
-        <p>Kamera tidak bisa diakses.<br>Pastikan izin kamera sudah diberikan,<br>lalu refresh halaman.</p>
-        <p style="font-size:12px;margin-top:8px;opacity:.6">${err.message}</p>
-      </div>`;
-  }
-}
-
-function stopCamera() {
-  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-  if (currentStream) currentStream.getTracks().forEach(t => t.stop());
 }
 
 function flipCamera() {
@@ -342,84 +287,115 @@ function flipCamera() {
   startCamera();
 }
 
-// ══════════════════════════════════════
-//  SCAN LOOP (jsQR)
-// ══════════════════════════════════════
-let tickCount = 0;
-function tick() {
-  if (isPaused) return;
+// ── CAMERA ──
+function startCamera() {
+  scanning = false;
+  if (currentStream) currentStream.getTracks().forEach(t => t.stop());
 
   const video = document.getElementById("video");
+  setIndicator("scanning", "● Memulai kamera...");
 
-  // Tunggu video siap — tapi tetap loop (tidak berhenti)
-  if (!video || video.readyState < 2 || video.videoWidth === 0) {
-    rafId = requestAnimationFrame(tick); return;
-  }
-
-  // Debug counter — tampilkan di indikator tiap 60 frame agar tahu loop jalan
-  tickCount++;
-  if (tickCount % 60 === 0) {
-    if (!isPaused) setIndicator("scanning", "● Siap scan (" + Math.floor(tickCount/60) + "s)");
-  }
-
-  canvas.width  = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  // Coba inversionAttempts berbeda untuk kompatibilitas lebih baik
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: "attemptBoth"
-  });
-
-  if (code && code.data) {
-    const text = code.data;
-    const now  = Date.now();
-    // Debounce — QR sama tidak diproses ulang dalam 3 detik
-    if (text === lastScanned && now - lastScannedAt < 3000) {
-      rafId = requestAnimationFrame(tick); return;
+  navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: useFrontCam ? "user" : { ideal: "environment" },
+      width:  { ideal: 1280 },
+      height: { ideal: 720 }
     }
-    lastScanned   = text;
-    lastScannedAt = now;
-    onQrDetected(text);
-    return;
-  }
+  })
+  .then(function(stream) {
+    currentStream = stream;
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("muted", "");
+    video.muted = true;
 
-  rafId = requestAnimationFrame(tick);
+    video.oncanplay = function() {
+      video.play().then(function() {
+        scanning  = true;
+        isPaused  = false;
+        setIndicator("scanning", "● Siap scan");
+        scanLoop();
+      }).catch(function(e) {
+        setIndicator("scanning", "⚠ Play error: " + e.message);
+      });
+    };
+  })
+  .catch(function(err) {
+    document.getElementById("camera-wrap").innerHTML =
+      '<div class="no-camera"><div class="icon">📷</div>' +
+      '<p>Kamera tidak bisa diakses.<br>Izinkan akses kamera di browser,<br>lalu refresh halaman.</p>' +
+      '<p style="font-size:12px;margin-top:8px;opacity:.6">' + err.message + '</p></div>';
+  });
 }
 
-// ══════════════════════════════════════
-//  QR DETECTED → EXTRACT ID → CHECK-IN
-// ══════════════════════════════════════
+// ── SCAN LOOP — pakai setInterval bukan rAF, lebih reliable di mobile ──
+let scanInterval = null;
+
+function scanLoop() {
+  if (scanInterval) clearInterval(scanInterval);
+
+  const video  = document.getElementById("video");
+  const canvas = document.createElement("canvas");
+  const ctx    = canvas.getContext("2d");
+  let counter  = 0;
+
+  scanInterval = setInterval(function() {
+    if (isPaused || !scanning) return;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+
+    counter++;
+    if (counter % 10 === 0) {
+      setIndicator("scanning", "● Siap scan (" + counter + "s)");
+    }
+
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    try {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "attemptBoth"
+      });
+      if (code && code.data) {
+        const text = code.data;
+        const now  = Date.now();
+        if (text === lastScanned && now - lastScannedAt < 3000) return;
+        lastScanned   = text;
+        lastScannedAt = now;
+        clearInterval(scanInterval);
+        onQrDetected(text);
+      }
+    } catch(e) {}
+
+  }, 100); // scan tiap 100ms = 10x per detik
+}
+
+// ── QR DETECTED ──
 async function onQrDetected(rawText) {
   isPaused = true;
   setIndicator("processing", "⏳ Memproses...");
 
-  // Ekstrak Employee ID dari berbagai format QR:
-  // 1. URL dengan parameter: https://...scanner.html?id=BMW001
-  // 2. JSON: {"id":"BMW001"}
-  // 3. Plain text: BMW001
+  // Ekstrak Employee ID
   let empId = "";
 
+  // Format 1: URL dengan ?id=BMW001
   try {
-    // Coba parse sebagai URL
-    const url    = new URL(rawText);
-    const param  = url.searchParams.get("id");
-    if (param) { empId = param.trim().toUpperCase(); }
+    const url   = new URL(rawText);
+    const param = url.searchParams.get("id");
+    if (param) empId = param.trim().toUpperCase();
   } catch(e) {}
 
+  // Format 2: JSON {"id":"BMW001"}
   if (!empId) {
-    // Coba parse sebagai JSON
     try {
       const parsed = JSON.parse(rawText);
       if (parsed.id) empId = String(parsed.id).trim().toUpperCase();
     } catch(e) {}
   }
 
-  if (!empId) {
-    // Plain text — langsung pakai sebagai Employee ID
-    empId = rawText.trim().toUpperCase();
-  }
+  // Format 3: plain text BMW001
+  if (!empId) empId = rawText.trim().toUpperCase();
 
   try {
     const res  = await fetch(GAS_URL, {
@@ -428,15 +404,13 @@ async function onQrDetected(rawText) {
     });
     const data = await res.json();
     showResult(data, empId);
-  } catch (e) {
+  } catch(e) {
     showResult({ success: false, code: "NETWORK",
       message: "Gagal terhubung ke server. Cek koneksi internet." }, empId);
   }
 }
 
-// ══════════════════════════════════════
-//  RESULT PANEL
-// ══════════════════════════════════════
+// ── RESULT ──
 function showResult(data, empId) {
   const iconEl   = document.getElementById("res-icon");
   const nameEl   = document.getElementById("res-name");
@@ -455,7 +429,6 @@ function showResult(data, empId) {
     statusEl.className   = "result-status " + (d.status === "Terlambat" ? "st-late" : "st-ok");
     scanCount++;
     document.getElementById("scan-count").textContent = scanCount;
-    // Auto lanjut setelah 3 detik
     setTimeout(() => resumeScan(), 3000);
 
   } else if (data.code === "DUPLICATE") {
@@ -465,7 +438,7 @@ function showResult(data, empId) {
     subEl.textContent    = "";
     statusEl.textContent = "Sudah Check-In";
     statusEl.className   = "result-status st-late";
-    msgEl.innerHTML      = `<div class="result-msg msg-warn">${data.message}</div>`;
+    msgEl.innerHTML      = '<div class="result-msg msg-warn">' + data.message + '</div>';
 
   } else {
     iconEl.textContent   = "✕";
@@ -474,7 +447,7 @@ function showResult(data, empId) {
     subEl.textContent    = "";
     statusEl.textContent = "Gagal";
     statusEl.className   = "result-status st-err";
-    msgEl.innerHTML      = `<div class="result-msg msg-err">${data.message}</div>`;
+    msgEl.innerHTML      = '<div class="result-msg msg-err">' + data.message + '</div>';
   }
 
   document.getElementById("result-panel").classList.add("show");
@@ -484,7 +457,7 @@ function resumeScan() {
   document.getElementById("result-panel").classList.remove("show");
   isPaused = false;
   setIndicator("scanning", "● Siap scan");
-  rafId = requestAnimationFrame(tick);
+  scanLoop();
 }
 
 function setIndicator(cls, text) {
