@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>BMW GIIAS — Scanner Petugas</title>
-<!-- ZXing library untuk scan QR via browser -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.20.0/index.min.js"></script>
+<!-- jsQR library untuk scan QR via browser -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -183,10 +183,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 </head>
 <body>
 
-<!-- ── CONFIG — isi GAS_URL setelah deploy Apps Script ── -->
-<script>
-const GAS_URL = "GANTI_DENGAN_WEB_APP_URL_DARI_GOOGLE_APPS_SCRIPT";
-</script>
+
 
 <!-- ════ PETUGAS MODAL ════ -->
 <div class="modal-overlay open" id="modal-petugas">
@@ -251,17 +248,23 @@ const GAS_URL = "GANTI_DENGAN_WEB_APP_URL_DARI_GOOGLE_APPS_SCRIPT";
 
 <script>
 // ══════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════
+const GAS_URL = "GANTI_DENGAN_WEB_APP_URL_DARI_GOOGLE_APPS_SCRIPT";
+
+// ══════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════
-let petugas        = "";
-let scanCount      = 0;
-let isScanning     = false;
-let isPaused       = false;
-let codeReader     = null;
-let currentStream  = null;
-let useFrontCamera = false;
-let lastScanned    = "";
-let lastScannedAt  = 0;
+let petugas       = "";
+let scanCount     = 0;
+let isPaused      = false;
+let currentStream = null;
+let useFrontCam   = false;
+let lastScanned   = "";
+let lastScannedAt = 0;
+let rafId         = null;
+let canvas        = document.createElement("canvas");
+let ctx           = canvas.getContext("2d");
 
 // ══════════════════════════════════════
 //  PETUGAS MODAL
@@ -288,112 +291,126 @@ function openPetugasModal() {
 }
 
 // ══════════════════════════════════════
-//  CAMERA & SCANNER
+//  CAMERA
 // ══════════════════════════════════════
 async function startCamera() {
   try {
-    const constraints = {
+    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+    if (rafId) cancelAnimationFrame(rafId);
+
+    const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: useFrontCamera ? "user" : { ideal: "environment" },
-        width: { ideal: 1280 }, height: { ideal: 720 }
+        facingMode: useFrontCam ? "user" : { ideal: "environment" },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 }
       }
-    };
+    });
 
-    if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
-    }
-
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     currentStream = stream;
-    const video   = document.getElementById("video");
+    const video = document.getElementById("video");
     video.srcObject = stream;
+    video.setAttribute("playsinline", true);
     await video.play();
 
-    isScanning = true;
-    isPaused   = false;
+    isPaused = false;
     setIndicator("scanning", "● Siap scan");
-    requestAnimationFrame(scanFrame);
+    video.addEventListener("loadeddata", () => {
+      rafId = requestAnimationFrame(tick);
+    }, { once: true });
 
   } catch (err) {
     document.getElementById("camera-wrap").innerHTML =
       `<div class="no-camera">
         <div class="icon">📷</div>
-        <p>Kamera tidak dapat diakses.<br>Pastikan izin kamera sudah diberikan di browser,<br>lalu refresh halaman.</p>
+        <p>Kamera tidak bisa diakses.<br>Pastikan izin kamera sudah diberikan,<br>lalu refresh halaman.</p>
         <p style="font-size:12px;margin-top:8px;opacity:.6">${err.message}</p>
       </div>`;
   }
 }
 
 function stopCamera() {
-  isScanning = false;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   if (currentStream) currentStream.getTracks().forEach(t => t.stop());
 }
 
 function flipCamera() {
-  useFrontCamera = !useFrontCamera;
+  useFrontCam = !useFrontCam;
   startCamera();
 }
 
-// Scan tiap frame menggunakan ZXing
-let zxingReader = null;
-async function scanFrame() {
-  if (!isScanning || isPaused) return;
+// ══════════════════════════════════════
+//  SCAN LOOP (jsQR)
+// ══════════════════════════════════════
+function tick() {
+  if (isPaused) return;
 
   const video = document.getElementById("video");
   if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-    requestAnimationFrame(scanFrame); return;
+    rafId = requestAnimationFrame(tick); return;
   }
 
-  // Lazy init ZXing reader
-  if (!zxingReader) {
-    zxingReader = new ZXing.BrowserQRCodeReader();
-  }
-
-  const canvas  = document.createElement("canvas");
   canvas.width  = video.videoWidth;
   canvas.height = video.videoHeight;
-  const ctx     = canvas.getContext("2d");
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  try {
-    const result = await zxingReader.decodeFromCanvas(canvas);
-    if (result) {
-      const text = result.getText();
-      const now  = Date.now();
-      // Debounce: scan QR yang sama tidak diproses ulang dalam 3 detik
-      if (text === lastScanned && now - lastScannedAt < 3000) {
-        requestAnimationFrame(scanFrame); return;
-      }
-      lastScanned   = text;
-      lastScannedAt = now;
-      onQrDetected(text);
-      return;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "dontInvert"
+  });
+
+  if (code) {
+    const text = code.data;
+    const now  = Date.now();
+    // Debounce — QR sama tidak diproses ulang dalam 3 detik
+    if (text === lastScanned && now - lastScannedAt < 3000) {
+      rafId = requestAnimationFrame(tick); return;
     }
-  } catch (e) {
-    // Tidak ada QR terdeteksi — lanjut scan
+    lastScanned   = text;
+    lastScannedAt = now;
+    onQrDetected(text);
+    return;
   }
 
-  requestAnimationFrame(scanFrame);
+  rafId = requestAnimationFrame(tick);
 }
 
 // ══════════════════════════════════════
-//  QR DETECTED → PROSES CHECK-IN
+//  QR DETECTED → EXTRACT ID → CHECK-IN
 // ══════════════════════════════════════
 async function onQrDetected(rawText) {
   isPaused = true;
   setIndicator("processing", "⏳ Memproses...");
 
-  // Format QR yang diharapkan: "BMWXXX" langsung, atau JSON {"id":"BMWXXX"}
-  let empId = rawText.trim().toUpperCase();
-  try {
-    const parsed = JSON.parse(rawText);
-    if (parsed.id) empId = String(parsed.id).trim().toUpperCase();
-  } catch(e) {}
+  // Ekstrak Employee ID dari berbagai format QR:
+  // 1. URL dengan parameter: https://...scanner.html?id=BMW001
+  // 2. JSON: {"id":"BMW001"}
+  // 3. Plain text: BMW001
+  let empId = "";
 
   try {
-    const res = await fetch(GAS_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "scanCheckin", employeeId: empId, petugas })
+    // Coba parse sebagai URL
+    const url    = new URL(rawText);
+    const param  = url.searchParams.get("id");
+    if (param) { empId = param.trim().toUpperCase(); }
+  } catch(e) {}
+
+  if (!empId) {
+    // Coba parse sebagai JSON
+    try {
+      const parsed = JSON.parse(rawText);
+      if (parsed.id) empId = String(parsed.id).trim().toUpperCase();
+    } catch(e) {}
+  }
+
+  if (!empId) {
+    // Plain text — langsung pakai sebagai Employee ID
+    empId = rawText.trim().toUpperCase();
+  }
+
+  try {
+    const res  = await fetch(GAS_URL, {
+      method : "POST",
+      body   : JSON.stringify({ action: "scanCheckin", employeeId: empId, petugas })
     });
     const data = await res.json();
     showResult(data, empId);
@@ -412,56 +429,52 @@ function showResult(data, empId) {
   const subEl    = document.getElementById("res-sub");
   const statusEl = document.getElementById("res-status");
   const msgEl    = document.getElementById("res-msg");
-
   msgEl.innerHTML = "";
 
   if (data.success) {
     const d = data.data;
-    iconEl.textContent  = "✓";
-    iconEl.className    = "result-icon icon-ok";
-    nameEl.textContent  = d.nama;
-    subEl.textContent   = d.shift + " Shift · " + d.dealer + "\nCheck-in pukul " + d.jam + " WIB · oleh " + d.petugas;
+    iconEl.textContent   = "✓";
+    iconEl.className     = "result-icon icon-ok";
+    nameEl.textContent   = d.nama;
+    subEl.textContent    = d.shift + " Shift · " + d.dealer + "\nCheck-in pukul " + d.jam + " WIB · oleh " + d.petugas;
     statusEl.textContent = d.status === "Terlambat" ? "⚠ Terlambat" : "✓ Tepat Waktu";
-    statusEl.className  = "result-status " + (d.status === "Terlambat" ? "st-late" : "st-ok");
+    statusEl.className   = "result-status " + (d.status === "Terlambat" ? "st-late" : "st-ok");
     scanCount++;
     document.getElementById("scan-count").textContent = scanCount;
+    // Auto lanjut setelah 3 detik
+    setTimeout(() => resumeScan(), 3000);
 
   } else if (data.code === "DUPLICATE") {
-    iconEl.textContent  = "⚠";
-    iconEl.className    = "result-icon icon-warn";
-    nameEl.textContent  = empId;
-    subEl.textContent   = "";
+    iconEl.textContent   = "⚠";
+    iconEl.className     = "result-icon icon-warn";
+    nameEl.textContent   = empId;
+    subEl.textContent    = "";
     statusEl.textContent = "Sudah Check-In";
-    statusEl.className  = "result-status st-late";
-    msgEl.innerHTML     = `<div class="result-msg msg-warn">${data.message}</div>`;
+    statusEl.className   = "result-status st-late";
+    msgEl.innerHTML      = `<div class="result-msg msg-warn">${data.message}</div>`;
 
   } else {
-    iconEl.textContent  = "✕";
-    iconEl.className    = "result-icon icon-err";
-    nameEl.textContent  = empId;
-    subEl.textContent   = "";
+    iconEl.textContent   = "✕";
+    iconEl.className     = "result-icon icon-err";
+    nameEl.textContent   = empId;
+    subEl.textContent    = "";
     statusEl.textContent = "Gagal";
-    statusEl.className  = "result-status st-err";
-    msgEl.innerHTML     = `<div class="result-msg msg-err">${data.message}</div>`;
+    statusEl.className   = "result-status st-err";
+    msgEl.innerHTML      = `<div class="result-msg msg-err">${data.message}</div>`;
   }
 
   document.getElementById("result-panel").classList.add("show");
-
-  // Auto tutup panel setelah 4 detik jika sukses
-  if (data.success) {
-    setTimeout(() => resumeScan(), 4000);
-  }
 }
 
 function resumeScan() {
   document.getElementById("result-panel").classList.remove("show");
   isPaused = false;
   setIndicator("scanning", "● Siap scan");
-  requestAnimationFrame(scanFrame);
+  rafId = requestAnimationFrame(tick);
 }
 
 function setIndicator(cls, text) {
-  const el = document.getElementById("scan-indicator");
+  const el      = document.getElementById("scan-indicator");
   el.className  = "scan-indicator " + cls;
   el.textContent = text;
 }
