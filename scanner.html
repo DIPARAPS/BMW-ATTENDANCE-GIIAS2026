@@ -432,14 +432,26 @@ function showResult(data, empId) {
   const msgEl    = document.getElementById("res-msg");
   msgEl.innerHTML = "";
 
-  if (data.success) {
+  if (data.success && data.data) {
     const d = data.data;
     iconEl.textContent   = "✓";
     iconEl.className     = "result-icon icon-ok";
-    nameEl.textContent   = d.nama;
-    subEl.textContent    = d.shift + " Shift · " + d.dealer + "\nCheck-in pukul " + d.jam + " WIB · oleh " + d.petugas;
+    nameEl.textContent   = d.nama || empId;
+    subEl.textContent    = (d.shift || "") + " Shift · " + (d.dealer || "") + "\nCheck-in pukul " + (d.jam || "") + " WIB · oleh " + (d.petugas || petugas);
     statusEl.textContent = d.status === "Terlambat" ? "⚠ Terlambat" : "✓ Tepat Waktu";
     statusEl.className   = "result-status " + (d.status === "Terlambat" ? "st-late" : "st-ok");
+    scanCount++;
+    document.getElementById("scan-count").textContent = scanCount;
+    setTimeout(() => resumeScan(), 3000);
+
+  } else if (data.success && !data.data) {
+    // Berhasil tapi data kosong — tampilkan sukses generik
+    iconEl.textContent   = "✓";
+    iconEl.className     = "result-icon icon-ok";
+    nameEl.textContent   = empId;
+    subEl.textContent    = "Check-in berhasil dicatat";
+    statusEl.textContent = "✓ Berhasil";
+    statusEl.className   = "result-status st-ok";
     scanCount++;
     document.getElementById("scan-count").textContent = scanCount;
     setTimeout(() => resumeScan(), 3000);
@@ -460,7 +472,7 @@ function showResult(data, empId) {
     subEl.textContent    = "";
     statusEl.textContent = "Gagal";
     statusEl.className   = "result-status st-err";
-    msgEl.innerHTML      = '<div class="result-msg msg-err">' + data.message + '</div>';
+    msgEl.innerHTML      = '<div class="result-msg msg-err">' + (data.message || "Error tidak diketahui") + '</div>';
   }
 
   document.getElementById("result-panel").classList.add("show");
