@@ -324,17 +324,26 @@ function pk(k) {
 function updDots(){for(let i=0;i<4;i++) document.getElementById("d"+i).classList.toggle("filled",i<pinBuf.length)}
 async function submitPin(){
   const err=document.getElementById("pin-err");
+  err.textContent = "Memverifikasi...";
   try{
     const res=await api("verifyPin",{pin:pinBuf});
     if(res.success){
       document.getElementById("lock-overlay").classList.add("hidden");
+      err.textContent="";
       loadDashboard(); fetchLive();
     } else {
       for(let i=0;i<4;i++) document.getElementById("d"+i).classList.add("error");
       err.textContent=res.message||"PIN salah.";
-      setTimeout(()=>{pinBuf="";updDots();for(let i=0;i<4;i++) document.getElementById("d"+i).classList.remove("error");err.textContent=""},900);
+      setTimeout(()=>{
+        pinBuf="";updDots();
+        for(let i=0;i<4;i++) document.getElementById("d"+i).classList.remove("error");
+        err.textContent="";
+      },1200);
     }
-  }catch(e){err.textContent="Gagal terhubung.";pinBuf="";updDots()}
+  }catch(e){
+    err.textContent="Gagal: "+e.message;
+    pinBuf="";updDots();
+  }
 }
 document.addEventListener("keydown",e=>{
   if(document.getElementById("lock-overlay").classList.contains("hidden"))return;
@@ -353,14 +362,26 @@ function switchPage(id,el){
   if(id==="log")loadLog();
 }
 
-// ── API — pakai GET+URLSearchParams agar tidak terkena CORS block ──
+// ── API — pakai GET+URLSearchParams ────────────────────────────
 async function api(action, extra={}) {
-  const params = new URLSearchParams({ action, ...extra });
-  const res = await fetch(GAS_URL + "?" + params.toString(), {
-    method: "GET", redirect: "follow"
-  });
-  const text = await res.text();
-  return JSON.parse(text);
+  const params = new URLSearchParams();
+  params.append("action", action);
+  for (const [k, v] of Object.entries(extra)) {
+    params.append(k, String(v));
+  }
+  try {
+    const res  = await fetch(GAS_URL + "?" + params.toString(), {
+      method: "GET", redirect: "follow"
+    });
+    const text = await res.text();
+    // Kadang GAS return HTML error page — guard JSON.parse
+    if (!text || text.trim().startsWith("<")) {
+      throw new Error("Server return HTML bukan JSON. Pastikan GAS sudah di-deploy ulang.");
+    }
+    return JSON.parse(text);
+  } catch(e) {
+    throw new Error(e.message);
+  }
 }
 
 // ── Dashboard ──
