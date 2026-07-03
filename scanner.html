@@ -296,7 +296,7 @@ function openPetugasModal() {
 async function startCamera() {
   try {
     if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-    if (rafId) cancelAnimationFrame(rafId);
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -310,13 +310,17 @@ async function startCamera() {
     const video = document.getElementById("video");
     video.srcObject = stream;
     video.setAttribute("playsinline", true);
+    video.muted = true;
+
+    // Mulai tick loop segera setelah play — tidak tunggu loadeddata
+    // karena event loadeddata kadang tidak fired di mobile browser
     await video.play();
 
     isPaused = false;
     setIndicator("scanning", "● Siap scan");
-    video.addEventListener("loadeddata", () => {
-      rafId = requestAnimationFrame(tick);
-    }, { once: true });
+
+    // Langsung mulai loop tanpa tunggu event
+    rafId = requestAnimationFrame(tick);
 
   } catch (err) {
     document.getElementById("camera-wrap").innerHTML =
@@ -341,24 +345,34 @@ function flipCamera() {
 // ══════════════════════════════════════
 //  SCAN LOOP (jsQR)
 // ══════════════════════════════════════
+let tickCount = 0;
 function tick() {
   if (isPaused) return;
 
   const video = document.getElementById("video");
-  if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+
+  // Tunggu video siap — tapi tetap loop (tidak berhenti)
+  if (!video || video.readyState < 2 || video.videoWidth === 0) {
     rafId = requestAnimationFrame(tick); return;
+  }
+
+  // Debug counter — tampilkan di indikator tiap 60 frame agar tahu loop jalan
+  tickCount++;
+  if (tickCount % 60 === 0) {
+    if (!isPaused) setIndicator("scanning", "● Siap scan (" + Math.floor(tickCount/60) + "s)");
   }
 
   canvas.width  = video.videoWidth;
   canvas.height = video.videoHeight;
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+  // Coba inversionAttempts berbeda untuk kompatibilitas lebih baik
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const code = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: "dontInvert"
+    inversionAttempts: "attemptBoth"
   });
 
-  if (code) {
+  if (code && code.data) {
     const text = code.data;
     const now  = Date.now();
     // Debounce — QR sama tidak diproses ulang dalam 3 detik
